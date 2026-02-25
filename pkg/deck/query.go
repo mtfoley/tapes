@@ -561,10 +561,20 @@ func (q *Query) buildSessionMessages(nodes []*ent.Node) ([]SessionMessage, map[s
 	toolFrequency := map[string]int{}
 
 	var lastTime time.Time
+	var lastModel string
 	for i, node := range nodes {
 		blocks, _ := parseContentBlocks(node.Content)
 		t := tokenCounts(node)
-		inputCost, outputCost, totalCost := q.costForNode(node, t)
+
+		model := normalizeModel(node.Model)
+		if model == "" {
+			model = lastModel
+		}
+		if model != "" {
+			lastModel = model
+		}
+
+		inputCost, outputCost, totalCost := q.costForModel(model, t)
 
 		toolCalls := extractToolCalls(blocks)
 		for _, tool := range toolCalls {
@@ -581,7 +591,7 @@ func (q *Query) buildSessionMessages(nodes []*ent.Node) ([]SessionMessage, map[s
 		messages = append(messages, SessionMessage{
 			Hash:         node.ID,
 			Role:         node.Role,
-			Model:        node.Model,
+			Model:        model,
 			Timestamp:    node.CreatedAt,
 			Delta:        delta,
 			InputTokens:  t.Input,
@@ -759,6 +769,7 @@ func (q *Query) buildSessionSummaryFromNodes(nodes []*ent.Node) (SessionSummary,
 
 	hasToolError := false
 	hasGitActivity := false
+	var lastModel string
 	for _, n := range nodes {
 		blocks, _ := parseContentBlocks(n.Content)
 		toolCalls += countToolCalls(blocks)
@@ -783,8 +794,12 @@ func (q *Query) buildSessionSummaryFromNodes(nodes []*ent.Node) (SessionSummary,
 
 		model := normalizeModel(n.Model)
 		if model == "" {
+			model = lastModel
+		}
+		if model == "" {
 			continue
 		}
+		lastModel = model
 
 		pricing, ok := PricingForModel(q.pricing, model)
 		if !ok {
@@ -876,8 +891,7 @@ func (q *Query) loadAncestry(ctx context.Context, leaf *ent.Node) ([]*ent.Node, 
 	return nodes, nil
 }
 
-func (q *Query) costForNode(node *ent.Node, t nodeTokens) (float64, float64, float64) {
-	model := normalizeModel(node.Model)
+func (q *Query) costForModel(model string, t nodeTokens) (float64, float64, float64) {
 	if model == "" {
 		return 0, 0, 0
 	}
