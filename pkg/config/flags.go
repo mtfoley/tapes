@@ -49,6 +49,9 @@ const (
 	FlagEmbeddingDims   = "embedding-dimensions"
 	FlagAPITarget       = "api-target"
 	FlagProxyTarget     = "proxy-target"
+	FlagKafkaBrokers    = "kafka-brokers"
+	FlagKafkaTopic      = "kafka-topic"
+	FlagKafkaClientID   = "kafka-client-id"
 
 	// Standalone subcommand variants use "listen" as the flag name
 	// but bind to different viper keys depending on the service.

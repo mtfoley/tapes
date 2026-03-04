@@ -8,6 +8,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -16,6 +17,7 @@ import (
 	"github.com/papercomputeco/tapes/pkg/embeddings"
 	"github.com/papercomputeco/tapes/pkg/llm"
 	"github.com/papercomputeco/tapes/pkg/merkle"
+	"github.com/papercomputeco/tapes/pkg/publisher"
 	"github.com/papercomputeco/tapes/pkg/storage"
 	"github.com/papercomputeco/tapes/pkg/vector"
 )
@@ -37,6 +39,10 @@ type Job struct {
 type Config struct {
 	// Driver is the storage backend for persisting nodes.
 	Driver storage.Driver
+
+	// Publisher is an optional event publisher for newly inserted nodes.
+	// If nil, publishing is disabled.
+	Publisher publisher.Publisher
 
 	// VectorDriver is the optional vector store driver for embeddings.
 	VectorDriver vector.Driver
@@ -118,6 +124,14 @@ func (p *Pool) Enqueue(job Job) bool {
 func (p *Pool) Close() {
 	close(p.queue)
 	p.wg.Wait()
+
+	if p.config.Publisher == nil {
+		return
+	}
+
+	if err := p.config.Publisher.Close(); err != nil {
+		p.logger.Warn("failed to close publisher", "error", err)
+	}
 }
 
 // worker is the inner worker thread that continuously pulls jobs off the jobs queue
@@ -158,6 +172,57 @@ func (p *Pool) processJob(job Job) {
 		)
 		p.storeEmbeddings(ctx, newNodes)
 	}
+
+	// If Kafka is configured, publish newly inserted nodes
+	if p.config.Publisher != nil && len(newNodes) > 0 {
+		p.publishConversationTurn(ctx, head, newNodes)
+	}
+}
+
+func (p *Pool) publishConversationTurn(ctx context.Context, head string, newNodes []*merkle.Node) {
+	rootHash, err := p.deriveRootHash(ctx, head)
+	if err != nil {
+		p.logger.Error("failed to derive root hash for event publishing",
+			"head", head,
+			"error", err,
+		)
+		return
+	}
+
+	for _, node := range newNodes {
+		event, err := publisher.NewEvent(rootHash, node)
+		if err != nil {
+			p.logger.Error("failed to build event",
+				"hash", node.Hash,
+				"error", err,
+			)
+			continue
+		}
+
+		if err := p.config.Publisher.Publish(ctx, event); err != nil {
+			p.logger.Error("failed to publish event",
+				"hash", node.Hash,
+				"error", err,
+			)
+		}
+	}
+}
+
+func (p *Pool) deriveRootHash(ctx context.Context, head string) (string, error) {
+	ancestry, err := p.config.Driver.Ancestry(ctx, head)
+	if err != nil {
+		return "", fmt.Errorf("get ancestry: %w", err)
+	}
+	if len(ancestry) == 0 {
+		return "", errors.New("empty ancestry")
+	}
+
+	root := ancestry[len(ancestry)-1]
+	if root == nil || root.Hash == "" {
+		return "", errors.New("empty root hash")
+	}
+
+	return root.Hash, nil
 }
 
 // storeConversationTurn stores a request-response pair in the merkle dag.
