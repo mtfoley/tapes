@@ -2,13 +2,20 @@ package ollama
 
 import (
 	"encoding/json"
-
 	"github.com/papercomputeco/tapes/pkg/llm"
 	"github.com/papercomputeco/tapes/pkg/utils"
 )
 
 // Provider implements the Provider interface for Ollama's API.
 type Provider struct{}
+
+func getToolArgs(arguments []byte) map[string]any {
+	var toolArgs map[string]any
+	if toolParseErr := json.Unmarshal(arguments, &toolArgs); toolParseErr != nil {
+		toolArgs = make(map[string]any, 0)
+	}
+	return toolArgs
+}
 
 func New() *Provider { return &Provider{} }
 
@@ -58,7 +65,7 @@ func (o *Provider) ParseRequest(payload []byte) (*llm.ChatRequest, error) {
 				Type:      "tool_use",
 				ToolUseID: tc.ID,
 				ToolName:  tc.Function.Name,
-				ToolInput: tc.Function.Arguments,
+				ToolInput: getToolArgs(tc.Function.Arguments),
 			})
 		}
 
@@ -142,7 +149,7 @@ func (o *Provider) ParseResponse(payload []byte) (*llm.ChatResponse, error) {
 			Type:      "tool_use",
 			ToolUseID: tc.ID,
 			ToolName:  tc.Function.Name,
-			ToolInput: tc.Function.Arguments,
+			ToolInput: getToolArgs(tc.Function.Arguments),
 		})
 	}
 

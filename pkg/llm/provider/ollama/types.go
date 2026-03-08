@@ -1,7 +1,10 @@
 // Package ollama
 package ollama
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ollamaRequest represents Ollama's request format.
 type ollamaRequest struct {
@@ -28,9 +31,9 @@ type ollamaMessage struct {
 type ollamaToolCall struct {
 	ID       string `json:"id,omitempty"`
 	Function struct {
-		Index     int            `json:"index,omitempty"`
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
+		Index     int             `json:"index,omitempty"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	} `json:"function"`
 }
 
