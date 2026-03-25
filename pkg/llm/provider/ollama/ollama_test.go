@@ -471,6 +471,95 @@ var _ = Describe("Ollama Provider", func() {
 		})
 	})
 
+	Describe("ParseRequest with OpenAI-format content (OpenCode compatibility)", func() {
+		It("parses array content from OpenCode/Ollama requests", func() {
+			// This is the exact format OpenCode sends when using Ollama,
+			// where content is an array of objects instead of a plain string.
+			// See: https://github.com/papercomputeco/tapes/issues/137
+			payload := []byte(`{
+				"model": "qwen3-coder:30b",
+				"max_tokens": 32000,
+				"top_p": 1,
+				"messages": [
+					{
+						"role": "system",
+						"content": "You are a helpful assistant."
+					},
+					{
+						"role": "user",
+						"content": [
+							{"type": "text", "text": "I want to plan a unit test"},
+							{"type": "text", "text": "Additional context here"}
+						]
+					}
+				]
+			}`)
+
+			req, err := p.ParseRequest(payload)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(req.Model).To(Equal("qwen3-coder:30b"))
+			Expect(req.Messages).To(HaveLen(2))
+			Expect(req.Messages[0].Role).To(Equal("system"))
+			Expect(req.Messages[0].GetText()).To(Equal("You are a helpful assistant."))
+			Expect(req.Messages[1].Role).To(Equal("user"))
+			Expect(req.Messages[1].Content).To(HaveLen(2))
+			Expect(req.Messages[1].Content[0].Text).To(Equal("I want to plan a unit test"))
+			Expect(req.Messages[1].Content[1].Text).To(Equal("Additional context here"))
+		})
+
+		It("handles all-string OpenAI-format messages without false positive", func() {
+			// When all messages have string content, native Ollama parsing should
+			// be used (no fallback needed).
+			payload := []byte(`{
+				"model": "llama2",
+				"messages": [
+					{"role": "system", "content": "You are helpful."},
+					{"role": "user", "content": "Hello!"}
+				]
+			}`)
+
+			req, err := p.ParseRequest(payload)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(req.Messages).To(HaveLen(2))
+			Expect(req.Messages[1].GetText()).To(Equal("Hello!"))
+		})
+	})
+
+	Describe("ParseResponse with OpenAI-format (OpenCode compatibility)", func() {
+		It("parses OpenAI-format response with choices array", func() {
+			payload := []byte(`{
+				"id": "chatcmpl-123",
+				"object": "chat.completion",
+				"created": 1677858242,
+				"model": "qwen3-coder:30b",
+				"choices": [
+					{
+						"index": 0,
+						"message": {
+							"role": "assistant",
+							"content": "Here is the test plan."
+						},
+						"finish_reason": "stop"
+					}
+				],
+				"usage": {
+					"prompt_tokens": 100,
+					"completion_tokens": 50,
+					"total_tokens": 150
+				}
+			}`)
+
+			resp, err := p.ParseResponse(payload)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Model).To(Equal("qwen3-coder:30b"))
+			Expect(resp.Message.Role).To(Equal("assistant"))
+			Expect(resp.Message.GetText()).To(Equal("Here is the test plan."))
+			Expect(resp.Usage).NotTo(BeNil())
+			Expect(resp.Usage.PromptTokens).To(Equal(100))
+			Expect(resp.Usage.CompletionTokens).To(Equal(50))
+		})
+	})
+
 	Describe("ParseRequest with tool calls", func() {
 		It("parses tool calls in assistant messages", func() {
 			payload := []byte(`{

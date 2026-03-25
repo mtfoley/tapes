@@ -8,6 +8,10 @@ import (
 	"github.com/papercomputeco/tapes/pkg/llm"
 )
 
+// ParseRequestPayload parses an OpenAI-format chat completion request payload
+// into the common ChatRequest type. This is exported so other providers (e.g.
+// Ollama) can fall back to OpenAI parsing when they receive OpenAI-compatible
+// payloads.
 func ParseRequestPayload(payload []byte) (*llm.ChatRequest, error) {
 	var req openaiRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -117,6 +121,10 @@ func ParseRequestPayload(payload []byte) (*llm.ChatRequest, error) {
 	return result, nil
 }
 
+// ParseResponsePayload parses an OpenAI-format chat completion response payload
+// into the common ChatResponse type. This is exported so other providers (e.g.
+// Ollama) can fall back to OpenAI parsing when they receive OpenAI-compatible
+// payloads.
 func ParseResponsePayload(payload []byte) (*llm.ChatResponse, error) {
 	var resp openaiResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {

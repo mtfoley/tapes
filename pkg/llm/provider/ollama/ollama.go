@@ -23,8 +23,15 @@ func (o *Provider) DefaultStreaming() bool {
 
 func (o *Provider) ParseRequest(payload []byte) (*llm.ChatRequest, error) {
 	var req ollamaRequest
-	// If we have trouble decoding the Parse Request initially, let's try falling back to OpenAI format
 	if err := json.Unmarshal(payload, &req); err != nil {
+		return openai.ParseRequestPayload(payload)
+	}
+
+	// Detect OpenAI-format payloads that unmarshal successfully but lose content.
+	// When content is a JSON array (e.g. OpenCode sending OpenAI-format requests
+	// to Ollama), Go's decoder silently zero-values the string field, producing
+	// messages with a role but no content, images, or tool calls.
+	if hasLostContent(req.Messages) {
 		return openai.ParseRequestPayload(payload)
 	}
 
@@ -109,8 +116,14 @@ func (o *Provider) ParseRequest(payload []byte) (*llm.ChatRequest, error) {
 
 func (o *Provider) ParseResponse(payload []byte) (*llm.ChatResponse, error) {
 	var resp ollamaResponse
-	// If we have trouble decoding the Parse Request initially, let's try falling back to OpenAI format
 	if err := json.Unmarshal(payload, &resp); err != nil {
+		return openai.ParseResponsePayload(payload)
+	}
+
+	// Detect OpenAI-format responses: they use a "choices" array instead of a
+	// top-level "message" field, so resp.Message will be zero-valued while the
+	// model field is still populated from the JSON.
+	if resp.Model != "" && resp.Message.Role == "" && !resp.Done {
 		return openai.ParseResponsePayload(payload)
 	}
 
@@ -185,4 +198,17 @@ func (o *Provider) ParseResponse(payload []byte) (*llm.ChatResponse, error) {
 
 func (o *Provider) ParseStreamChunk(_ []byte) (*llm.StreamChunk, error) {
 	panic("Not yet implemented")
+}
+
+// hasLostContent detects when an OpenAI-format payload was unmarshaled into
+// Ollama types. Because ollamaMessage.Content is a string, array-valued content
+// (e.g. [{type: "text", text: "..."}]) gets silently zero-valued by Go's JSON
+// decoder, producing messages with a role but no content, images, or tool calls.
+func hasLostContent(msgs []ollamaMessage) bool {
+	for _, m := range msgs {
+		if m.Role != "" && m.Content == "" && len(m.Images) == 0 && len(m.ToolCalls) == 0 {
+			return true
+		}
+	}
+	return false
 }
